@@ -132,15 +132,25 @@ async function listTrackDevices(track) {
   return args;
 }
 
+// List parameters for a given device (VSTs are devices)
+async function listDeviceParameters(track, device) {
+  if (typeof track !== "number" || track < 0) throw new Error("track must be a non-negative integer");
+  if (typeof device !== "number" || device < 0) throw new Error("device must be a non-negative integer index");
+  const args = await sendAndWait("/live/device/get/parameters", track, device);
+  return args;
+}
+
 function setDeviceParam(track, device, param, value) {
   if (typeof track !== "number" || track < 0) throw new Error("track must be a non-negative integer");
   if (typeof device !== "number" || device < 0) throw new Error("device must be a non-negative integer index");
   if (typeof param !== "number" || param < 0) throw new Error("param must be a non-negative integer index");
-  if (typeof value !== "number") throw new Error("value must be a number (typically 0..1)");
+  if (typeof value !== "number") throw new Error("value must be a number (normalized 0..1)");
+  // Enforce normalized 0..1 value range for robustness
+  const normalized = Math.max(0, Math.min(1, value));
   return new Promise((resolve) => {
     // Common AbletonOSC endpoint: /live/device/set/param track device param value
-    osc.send(new OSC.Message("/live/device/set/param", track, device, param, value));
-    resolve(`Set track ${track} device ${device} param ${param} to ${value}`);
+    osc.send(new OSC.Message("/live/device/set/param", track, device, param, normalized));
+    resolve(`Set track ${track} device ${device} param ${param} to ${normalized}`);
   });
 }
 
@@ -281,15 +291,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "list_device_parameters",
+        description: "List parameters (names and indices) for a given device on a track",
+        inputSchema: {
+          type: "object",
+          properties: {
+            track: { type: "integer", minimum: 0, description: "Track index (0-based)" },
+            device: { type: "integer", minimum: 0, description: "Device index on the track (0-based)" },
+          },
+          required: ["track", "device"],
+        },
+      },
+      {
         name: "set_device_param",
-        description: "Set a device/VST parameter value by indices",
+        description: "Set a device/VST parameter value by indices (value normalized 0..1)",
         inputSchema: {
           type: "object",
           properties: {
             track: { type: "integer", minimum: 0, description: "Track index (0-based)" },
             device: { type: "integer", minimum: 0, description: "Device index on the track (0-based)" },
             param: { type: "integer", minimum: 0, description: "Parameter index on the device (0-based)" },
-            value: { type: "number", description: "Parameter value (usually 0..1, but depends on device)" },
+            value: { type: "number", minimum: 0, maximum: 1, description: "Normalized parameter value (0..1)" },
           },
           required: ["track", "device", "param", "value"],
         },
@@ -403,6 +425,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: JSON.stringify({ track, devices }),
+            },
+          ],
+        };
+      }
+
+      case "list_device_parameters": {
+        const { track, device } = args || {};
+        const parameters = await listDeviceParameters(track, device);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ track, device, parameters }),
             },
           ],
         };
