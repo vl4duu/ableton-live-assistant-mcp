@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start:mcp": "node ./mcp-server.mjs",
+    "test": "node ./tests/run-tests.mjs"
   },
   "keywords": [],
   "author": "",
