@@ -1,0 +1,765 @@
+{
+  "server_name": "ableton-osc-mcp",
+  "description": "MCP server for controlling Ableton Live clip arrangement via OSC",
+  "tools": [
+    {
+      "name": "get_song_info",
+      "description": "Get current song information including tempo, time signature, and playback state",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "returns": {
+        "tempo": "number",
+        "time_signature_numerator": "number",
+        "time_signature_denominator": "number",
+        "is_playing": "boolean",
+        "current_song_time": "number",
+        "loop_start": "number",
+        "loop_end": "number"
+      }
+    },
+    {
+      "name": "set_tempo",
+      "description": "Set the song tempo in BPM",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tempo": {
+            "type": "number",
+            "description": "Tempo in BPM (20-999)",
+            "minimum": 20,
+            "maximum": 999
+          }
+        },
+        "required": ["tempo"]
+      }
+    },
+    {
+      "name": "transport_control",
+      "description": "Control playback transport (play, stop, continue)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["play", "stop", "continue", "toggle"],
+            "description": "Transport action to perform"
+          }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "list_tracks",
+      "description": "Get list of all tracks with their properties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_return_tracks": {
+            "type": "boolean",
+            "description": "Include return/send tracks",
+            "default": false
+          },
+          "include_master": {
+            "type": "boolean",
+            "description": "Include master track",
+            "default": false
+          }
+        }
+      },
+      "returns": {
+        "tracks": "array of track objects with id, name, color, mute, solo, arm states"
+      }
+    },
+    {
+      "name": "get_track_clips",
+      "description": "Get all clips in a specific track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          }
+        },
+        "required": ["track_index"]
+      },
+      "returns": {
+        "clips": "array of clip objects with slot_index, name, length, loop settings"
+      }
+    },
+    {
+      "name": "fire_clip",
+      "description": "Trigger/fire a clip in the session view",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "description": "Zero-based clip slot index",
+            "minimum": 0
+          }
+        },
+        "required": ["track_index", "clip_index"]
+      }
+    },
+    {
+      "name": "stop_track_clips",
+      "description": "Stop all clips on a specific track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index, or -1 for all tracks",
+            "minimum": -1
+          }
+        },
+        "required": ["track_index"]
+      }
+    },
+    {
+      "name": "create_clip",
+      "description": "Create a new MIDI or audio clip in a clip slot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "description": "Zero-based clip slot index",
+            "minimum": 0
+          },
+          "length": {
+            "type": "number",
+            "description": "Clip length in beats",
+            "default": 4.0
+          }
+        },
+        "required": ["track_index", "clip_index"]
+      }
+    },
+    {
+      "name": "delete_clip",
+      "description": "Delete a clip from a clip slot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "description": "Zero-based clip slot index",
+            "minimum": 0
+          }
+        },
+        "required": ["track_index", "clip_index"]
+      }
+    },
+    {
+      "name": "set_clip_name",
+      "description": "Set or rename a clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "description": "Zero-based clip slot index",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "New clip name"
+          }
+        },
+        "required": ["track_index", "clip_index", "name"]
+      }
+    },
+    {
+      "name": "set_clip_color",
+      "description": "Set the color of a clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "description": "Zero-based clip slot index",
+            "minimum": 0
+          },
+          "color_index": {
+            "type": "integer",
+            "description": "Ableton color index (0-69)",
+            "minimum": 0,
+            "maximum": 69
+          }
+        },
+        "required": ["track_index", "clip_index", "color_index"]
+      }
+    },
+    {
+      "name": "duplicate_clip",
+      "description": "Duplicate a clip to another slot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_track_index": {
+            "type": "integer",
+            "description": "Source track index",
+            "minimum": 0
+          },
+          "source_clip_index": {
+            "type": "integer",
+            "description": "Source clip slot index",
+            "minimum": 0
+          },
+          "dest_track_index": {
+            "type": "integer",
+            "description": "Destination track index",
+            "minimum": 0
+          },
+          "dest_clip_index": {
+            "type": "integer",
+            "description": "Destination clip slot index",
+            "minimum": 0
+          }
+        },
+        "required": ["source_track_index", "source_clip_index", "dest_track_index", "dest_clip_index"]
+      }
+    },
+    {
+      "name": "list_scenes",
+      "description": "Get list of all scenes in the project",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "returns": {
+        "scenes": "array of scene objects with index, name, color"
+      }
+    },
+    {
+      "name": "fire_scene",
+      "description": "Fire/trigger a scene to launch all clips in that row",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer",
+            "description": "Zero-based scene index",
+            "minimum": 0
+          }
+        },
+        "required": ["scene_index"]
+      }
+    },
+    {
+      "name": "create_scene",
+      "description": "Create a new scene",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Position to insert scene, -1 for end",
+            "default": -1
+          },
+          "name": {
+            "type": "string",
+            "description": "Scene name",
+            "default": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_scene",
+      "description": "Delete a scene",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer",
+            "description": "Zero-based scene index",
+            "minimum": 0
+          }
+        },
+        "required": ["scene_index"]
+      }
+    },
+    {
+      "name": "duplicate_scene",
+      "description": "Duplicate a scene",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer",
+            "description": "Scene index to duplicate",
+            "minimum": 0
+          }
+        },
+        "required": ["scene_index"]
+      }
+    },
+    {
+      "name": "set_track_property",
+      "description": "Set track properties like volume, pan, mute, solo, arm",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          },
+          "property": {
+            "type": "string",
+            "enum": ["volume", "pan", "mute", "solo", "arm", "name", "color"],
+            "description": "Property to set"
+          },
+          "value": {
+            "description": "Value to set (type depends on property)"
+          }
+        },
+        "required": ["track_index", "property", "value"]
+      }
+    },
+    {
+      "name": "set_clip_loop",
+      "description": "Configure clip looping parameters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "loop_enabled": {
+            "type": "boolean",
+            "description": "Enable or disable looping"
+          },
+          "loop_start": {
+            "type": "number",
+            "description": "Loop start position in beats"
+          },
+          "loop_end": {
+            "type": "number",
+            "description": "Loop end position in beats"
+          }
+        },
+        "required": ["track_index", "clip_index"]
+      }
+    },
+    {
+      "name": "create_midi_note",
+      "description": "Add MIDI notes to a clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pitch": {
+            "type": "integer",
+            "description": "MIDI note number (0-127)",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time in beats"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Note duration in beats"
+          },
+          "velocity": {
+            "type": "integer",
+            "description": "Note velocity (0-127)",
+            "minimum": 0,
+            "maximum": 127,
+            "default": 100
+          }
+        },
+        "required": ["track_index", "clip_index", "pitch", "start_time", "duration"]
+      }
+    },
+    {
+      "name": "set_global_quantization",
+      "description": "Set the global quantization for clip launching",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "quantization": {
+            "type": "string",
+            "enum": ["none", "8_bars", "4_bars", "2_bars", "1_bar", "1/2", "1/4", "1/8", "1/16"],
+            "description": "Quantization value"
+          }
+        },
+        "required": ["quantization"]
+      }
+    },
+    {
+      "name": "create_audio_track",
+      "description": "Create a new audio track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Position to insert track, -1 for end",
+            "default": -1
+          },
+          "name": {
+            "type": "string",
+            "description": "Track name",
+            "default": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "create_midi_track",
+      "description": "Create a new MIDI track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Position to insert track, -1 for end",
+            "default": -1
+          },
+          "name": {
+            "type": "string",
+            "description": "Track name",
+            "default": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_track",
+      "description": "Delete a track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "description": "Zero-based track index",
+            "minimum": 0
+          }
+        },
+        "required": ["track_index"]
+      }
+    },
+    {
+      "name": "get_arrangement_view",
+      "description": "Get information about the arrangement view including loop and punch settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "returns": {
+        "loop_enabled": "boolean",
+        "loop_start": "number",
+        "loop_length": "number",
+        "punch_in": "number",
+        "punch_out": "number"
+      }
+    },
+    {
+      "name": "set_arrangement_loop",
+      "description": "Set arrangement loop points",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable arrangement loop"
+          },
+          "start": {
+            "type": "number",
+            "description": "Loop start position in beats"
+          },
+          "length": {
+            "type": "number",
+            "description": "Loop length in beats"
+          }
+        },
+        "required": ["enabled"]
+      }
+    },
+    {
+      "name": "jump_to_cue_point",
+      "description": "Jump playback to a specific cue point/locator",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cue_index": {
+            "type": "integer",
+            "description": "Cue point index",
+            "minimum": 0
+          }
+        },
+        "required": ["cue_index"]
+      }
+    },
+    {
+      "name": "get_clip_length",
+      "description": "Get the length of a clip in beats/bars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clip_index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["track_index", "clip_index"]
+      },
+      "returns": {
+        "length_beats": "number",
+        "length_bars": "number (calculated based on time signature)"
+      }
+    },
+    {
+      "name": "move_clip",
+      "description": "Move a clip to a different clip slot (useful for rearranging phrases)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_clip_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dest_track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dest_clip_index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["source_track_index", "source_clip_index", "dest_track_index", "dest_clip_index"]
+      }
+    },
+    {
+      "name": "get_all_clips_in_scene",
+      "description": "Get all clips that would fire in a specific scene (horizontal phrase row)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["scene_index"]
+      },
+      "returns": {
+        "clips": "array of {track_index, clip_index, name, length} for each clip in scene"
+      }
+    },
+    {
+      "name": "set_multiple_clip_lengths",
+      "description": "Set length for multiple clips at once (useful for phrase alignment)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track_index": {"type": "integer", "minimum": 0},
+                "clip_index": {"type": "integer", "minimum": 0},
+                "length_bars": {"type": "number"}
+              }
+            }
+          }
+        },
+        "required": ["clips"]
+      }
+    },
+    {
+      "name": "align_clips_to_phrase",
+      "description": "Snap all clips in a track to phrase boundaries (8, 16, 32, 64 bars)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "track_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "phrase_length": {
+            "type": "integer",
+            "enum": [4, 8, 16, 32, 64],
+            "description": "Target phrase length in bars"
+          }
+        },
+        "required": ["track_index", "phrase_length"]
+      }
+    },
+    {
+      "name": "create_phrase_structure",
+      "description": "Create a complete EDM phrase structure template (intro/buildup/drop/breakdown)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "structure_type": {
+            "type": "string",
+            "enum": ["standard_edm", "progressive_house", "dubstep", "techno", "custom"],
+            "description": "Predefined EDM structure templates"
+          },
+          "intro_bars": {
+            "type": "integer",
+            "default": 16
+          },
+          "buildup_bars": {
+            "type": "integer",
+            "default": 8
+          },
+          "drop_bars": {
+            "type": "integer",
+            "default": 32
+          },
+          "breakdown_bars": {
+            "type": "integer",
+            "default": 16
+          },
+          "outro_bars": {
+            "type": "integer",
+            "default": 16
+          }
+        },
+        "required": ["structure_type"]
+      },
+      "returns": {
+        "scenes_created": "array of scene names and bar positions"
+      }
+    },
+    {
+      "name": "batch_duplicate_clips",
+      "description": "Duplicate multiple clips at once (useful for creating variations)",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track_index": {"type": "integer"},
+                "clip_index": {"type": "integer"}
+              }
+            }
+          },
+          "destination_scene": {
+            "type": "integer",
+            "description": "Scene index where clips should be duplicated"
+          }
+        },
+        "required": ["clips", "destination_scene"]
+      }
+    },
+    {
+      "name": "get_phrase_at_time",
+      "description": "Get which phrase boundary (8/16/32 bar) a time position falls on",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "time_position": {
+            "type": "number",
+            "description": "Time position in beats"
+          },
+          "phrase_length": {
+            "type": "integer",
+            "enum": [4, 8, 16, 32, 64],
+            "default": 16
+          }
+        },
+        "required": ["time_position"]
+      },
+      "returns": {
+        "phrase_number": "integer",
+        "phrase_start_beat": "number",
+        "phrase_end_beat": "number"
+      }
+    }
+  ],
+  "configuration": {
+    "osc_host": {
+      "type": "string",
+      "description": "Ableton OSC host address",
+      "default": "127.0.0.1"
+    },
+    "osc_port": {
+      "type": "integer",
+      "description": "Ableton OSC port",
+      "default": 11000
+    },
+    "listen_port": {
+      "type": "integer",
+      "description": "Port to listen for OSC responses from Ableton",
+      "default": 11001
+    }
+  },
+  "implementation_notes": {
+    "osc_libraries": [
+      "python-osc (pyosc)",
+      "pythonosc"
+    ],
+    "prerequisites": [
+      "AbletonOSC MIDI remote script installed in Live",
+      "Live 11 or above",
+      "OSC enabled in AbletonOSC configuration"
+    ],
+    "error_handling": "All tools should handle OSC timeout errors and connection issues gracefully",
+    "state_management": "Consider caching track/clip structure to reduce OSC queries"
+  }
+}
