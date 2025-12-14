@@ -1,25 +1,25 @@
 #!/usr/bin/env node
-import {Server} from "@modelcontextprotocol/sdk/server/index.js";
-import {StdioServerTransport} from "@modelcontextprotocol/sdk/server/stdio.js";
-import {CallToolRequestSchema, ListToolsRequestSchema} from "@modelcontextprotocol/sdk/types.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import OSC from "osc-js";
 import fs from "fs";
 import path from "path";
-import {fileURLToPath} from "url";
+import { fileURLToPath } from "url";
 
 // Configuration / constants
 const TEST_MODE = process.env.MCP_TEST_MODE === "1" || process.env.NODE_ENV === "test";
 const TIMEOUT_MS = Number(process.env.ABLETON_OSC_TIMEOUT_MS) || 5000;
 const OSC_HOST = process.env.ABLETON_OSC_HOST || "127.0.0.1";
-const OSC_SEND_PORT = Number(process.env.ABLETON_OSC_SEND_PORT) || 11000;
-const OSC_RECV_PORT = Number(process.env.ABLETON_OSC_RECV_PORT) || 11001;
+const OSC_PORT = Number(process.env.ABLETON_OSC_PORT) || 11000;
+const OSC_RESPONSE_PORT = Number(process.env.ABLETON_OSC_RESPONSE_PORT) || 11001;
 
 // Load tool specifications from ableton_mcp_tools.json
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const TOOL_SPEC_PATH = path.resolve(__dirname, "ableton_mcp_tools.json");
 
-let toolsConfig = {tools: []};
+let toolsConfig = { tools: [] };
 
 try {
     if (fs.existsSync(TOOL_SPEC_PATH)) {
@@ -33,15 +33,17 @@ try {
 }
 
 // OSC client to communicate with Ableton Live
+// IMPORTANT: AbletonOSC sends responses to a fixed port (11001 by default)
+// not back to the source port, so we must bind to that specific port
 const osc = new OSC({
     plugin: new OSC.DatagramPlugin({
-        open: {host: "0.0.0.0", port: OSC_RECV_PORT},
-        send: {host: OSC_HOST, port: OSC_SEND_PORT},
+        open: { host: "0.0.0.0", port: OSC_RESPONSE_PORT, exclusive: false },
+        send: { host: OSC_HOST, port: OSC_PORT },
     }),
 });
 
 osc.on("open", () => {
-    console.error(`OSC listening on ${OSC_HOST}:${OSC_RECV_PORT}`);
+    console.error(`OSC client ready, sending to ${OSC_HOST}:${OSC_PORT}, receiving on port ${OSC_RESPONSE_PORT}`);
 });
 
 if (!TEST_MODE) {
@@ -59,12 +61,12 @@ const OSC_MAPPINGS = {
     get_song_info: {
         async handler() {
             const [tempo] = await sendAndWait("/live/song/get/tempo");
-            const [numNumerator] = await sendAndWait("/live/song/get/time_signature_numerator");
-            const [numDenominator] = await sendAndWait("/live/song/get/time_signature_denominator");
+            const [numNumerator] = await sendAndWait("/live/song/get/signature_numerator");
+            const [numDenominator] = await sendAndWait("/live/song/get/signature_denominator");
             const [isPlaying] = await sendAndWait("/live/song/get/is_playing");
             const [currentTime] = await sendAndWait("/live/song/get/current_song_time");
             const [loopStart] = await sendAndWait("/live/song/get/loop_start");
-            const [loopEnd] = await sendAndWait("/live/song/get/loop_end");
+            const [loopLength] = await sendAndWait("/live/song/get/loop_length");
 
             return {
                 tempo,
@@ -73,7 +75,7 @@ const OSC_MAPPINGS = {
                 is_playing: !!isPlaying,
                 current_song_time: currentTime,
                 loop_start: loopStart,
-                loop_end: loopEnd
+                loop_length: loopLength
             };
         }
     },
@@ -84,33 +86,7 @@ const OSC_MAPPINGS = {
         fireAndForget: true
     },
 
-    transport_control: {
-        async handler(args) {
-            const action = args.action;
-            switch (action) {
-                case "play":
-                    fireAndForget("/live/song/start_playing");
-                    return "Playback started";
-                case "stop":
-                    fireAndForget("/live/song/stop_playing");
-                    return "Playback stopped";
-                case "continue":
-                    fireAndForget("/live/song/continue_playing");
-                    return "Playback continued";
-                case "toggle":
-                    const [isPlaying] = await sendAndWait("/live/song/get/is_playing");
-                    if (isPlaying) {
-                        fireAndForget("/live/song/stop_playing");
-                        return "Playback stopped";
-                    } else {
-                        fireAndForget("/live/song/start_playing");
-                        return "Playback started";
-                    }
-                default:
-                    throw new Error(`Unknown action: ${action}`);
-            }
-        }
-    },
+
 
     // Track Operations
     list_tracks: {
@@ -137,7 +113,7 @@ const OSC_MAPPINGS = {
                 });
             }
 
-            return {tracks};
+            return { tracks };
         }
     },
 
@@ -163,7 +139,7 @@ const OSC_MAPPINGS = {
                 }
             }
 
-            return {clips};
+            return { clips };
         }
     },
 
@@ -183,7 +159,7 @@ const OSC_MAPPINGS = {
         address: "/live/clip_slot/create_clip",
         params: ["track_index", "clip_index", "length"],
         fireAndForget: true,
-        defaults: {length: 4.0}
+        defaults: { length: 4.0 }
     },
 
     delete_clip: {
@@ -224,7 +200,7 @@ const OSC_MAPPINGS = {
                 });
             }
 
-            return {scenes};
+            return { scenes };
         }
     },
 
@@ -238,7 +214,7 @@ const OSC_MAPPINGS = {
         address: "/live/song/create_scene",
         params: ["index"],
         fireAndForget: true,
-        defaults: {index: -1}
+        defaults: { index: -1 }
     },
 
     delete_scene: {
@@ -256,7 +232,7 @@ const OSC_MAPPINGS = {
     // Track Properties
     set_track_property: {
         async handler(args) {
-            const {track_index, property, value} = args;
+            const { track_index, property, value } = args;
 
             const propertyMap = {
                 volume: "/live/track/set/volume",
@@ -287,7 +263,7 @@ const OSC_MAPPINGS = {
     // Clip Operations
     set_clip_loop: {
         async handler(args) {
-            const {track_index, clip_index, loop_enabled, loop_start, loop_end} = args;
+            const { track_index, clip_index, loop_enabled, loop_start, loop_end } = args;
 
             if (loop_enabled !== undefined) {
                 fireAndForget("/live/clip/set/looping", track_index, clip_index, loop_enabled ? 1 : 0);
@@ -307,7 +283,7 @@ const OSC_MAPPINGS = {
         address: "/live/clip/add/notes",
         params: ["track_index", "clip_index", "pitch", "start_time", "duration", "velocity"],
         fireAndForget: true,
-        defaults: {velocity: 100}
+        defaults: { velocity: 100 }
     },
 
     set_global_quantization: {
@@ -339,14 +315,14 @@ const OSC_MAPPINGS = {
         address: "/live/song/create_audio_track",
         params: ["index"],
         fireAndForget: true,
-        defaults: {index: -1}
+        defaults: { index: -1 }
     },
 
     create_midi_track: {
         address: "/live/song/create_midi_track",
         params: ["index"],
         fireAndForget: true,
-        defaults: {index: -1}
+        defaults: { index: -1 }
     },
 
     delete_track: {
@@ -372,7 +348,7 @@ const OSC_MAPPINGS = {
 
     set_arrangement_loop: {
         async handler(args) {
-            const {enabled, start, length} = args;
+            const { enabled, start, length } = args;
 
             if (enabled !== undefined) {
                 fireAndForget("/live/song/set/loop", enabled ? 1 : 0);
@@ -390,7 +366,7 @@ const OSC_MAPPINGS = {
 
     get_clip_length: {
         async handler(args) {
-            const {track_index, clip_index} = args;
+            const { track_index, clip_index } = args;
             const [length] = await sendAndWait("/live/clip/get/length", track_index, clip_index);
             const [numNumerator] = await sendAndWait("/live/song/get/time_signature_numerator");
 
@@ -403,7 +379,7 @@ const OSC_MAPPINGS = {
 
     move_clip: {
         async handler(args) {
-            const {source_track_index, source_clip_index, dest_track_index, dest_clip_index} = args;
+            const { source_track_index, source_clip_index, dest_track_index, dest_clip_index } = args;
 
             // AbletonOSC doesn't have a direct move, so we duplicate then delete source
             fireAndForget("/live/clip/duplicate_clip_to", source_track_index, source_clip_index, dest_track_index, dest_clip_index);
@@ -417,7 +393,7 @@ const OSC_MAPPINGS = {
 
     get_all_clips_in_scene: {
         async handler(args) {
-            const {scene_index} = args;
+            const { scene_index } = args;
             const [numTracks] = await sendAndWait("/live/song/get/num_tracks");
 
             const clips = [];
@@ -436,7 +412,7 @@ const OSC_MAPPINGS = {
                 }
             }
 
-            return {clips};
+            return { clips };
         }
     }
 };
@@ -458,8 +434,8 @@ function sendAndWait(address, ...args) {
             reject(
                 new Error(
                     `Timeout waiting for Ableton response on ${address}. ` +
-                    `Check that Ableton Live is running with AbletonOSC enabled and ports are correct. ` +
-                    `(host=${OSC_HOST}, send→${OSC_SEND_PORT}, recv←${OSC_RECV_PORT})`
+                    `Check that Ableton Live is running with AbletonOSC enabled on port ${OSC_PORT}. ` +
+                    `(host=${OSC_HOST}, port=${OSC_PORT})`
                 )
             );
         };
@@ -486,7 +462,7 @@ const toolText = (text) => ({
     }]
 });
 const toolError = (err) => ({
-    content: [{type: "text", text: `Error: ${err?.message || String(err)}`}],
+    content: [{ type: "text", text: `Error: ${err?.message || String(err)}` }],
     isError: true,
 });
 
@@ -497,44 +473,50 @@ async function handleTool(toolName, args) {
         return "ok";
     }
 
-    const mapping = OSC_MAPPINGS[toolName];
+    // First, check if there's a custom handler in OSC_MAPPINGS (for complex tools like get_song_info)
+    const customMapping = OSC_MAPPINGS[toolName];
+    if (customMapping?.handler) {
+        return await customMapping.handler(args);
+    }
 
-    if (!mapping) {
+    // Otherwise, look up the tool in the JSON configuration
+    const toolDef = toolsConfig.tools?.find(t => t.name === toolName);
+    if (!toolDef || !toolDef.osc_mapping) {
         throw new Error(
-            `Tool '${toolName}' is defined in ableton_mcp_tools.json but not yet implemented in the server. ` +
-            `This tool requires custom OSC mapping logic to be added to the server.`
+            `Tool '${toolName}' is not properly configured. ` +
+            `Missing osc_mapping in configuration.`
         );
     }
 
-    // Custom handler function
-    if (mapping.handler) {
-        return await mapping.handler(args);
+    const oscMapping = toolDef.osc_mapping;
+
+    // Handle composite mappings (multiple OSC calls)
+    if (oscMapping.type === "composite") {
+        const results = [];
+        for (const address of oscMapping.calls) {
+            const [result] = await sendAndWait(address);
+            results.push(result);
+        }
+        return results;
     }
 
-    // Simple OSC address mapping
-    if (mapping.address) {
-        // Apply defaults
-        const finalArgs = {...(mapping.defaults || {}), ...args};
-
+    // Handle simple OSC address mapping
+    if (oscMapping.address) {
         // Extract parameters in order
-        const oscParams = (mapping.params || []).map(paramName => {
-            const value = finalArgs[paramName];
-            if (value === undefined && !mapping.defaults?.[paramName]) {
+        const oscParams = (oscMapping.params || []).map(paramName => {
+            const value = args[paramName];
+            if (value === undefined && toolDef.input_schema?.required?.includes(paramName)) {
                 throw new Error(`Missing required parameter: ${paramName}`);
             }
             return value;
         });
 
-        if (mapping.fireAndForget) {
-            fireAndForget(mapping.address, ...oscParams);
-            return `Command sent: ${mapping.address}`;
-        } else {
-            const result = await sendAndWait(mapping.address, ...oscParams);
-            return result;
-        }
+        // Send the OSC command
+        const result = await sendAndWait(oscMapping.address, ...oscParams);
+        return result;
     }
 
-    throw new Error(`Invalid mapping configuration for tool: ${toolName}`);
+    throw new Error(`Invalid osc_mapping configuration for tool: ${toolName}`);
 }
 
 // Create MCP server
@@ -556,23 +538,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     const healthCheck = {
         name: "health_check",
         description: "Simple health check that returns ok if the server is responsive",
-        inputSchema: {type: "object", properties: {}, required: []}
+        inputSchema: { type: "object", properties: {}, required: [] }
     };
 
     // Convert tools from JSON format to MCP format
     const tools = (toolsConfig.tools || []).map(tool => ({
         name: tool.name,
         description: tool.description || "",
-        inputSchema: tool.input_schema || {type: "object", properties: {}, required: []}
+        inputSchema: tool.input_schema || { type: "object", properties: {}, required: [] }
     }));
 
-    return {tools: [healthCheck, ...tools]};
+    return { tools: [healthCheck, ...tools] };
 });
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
-        const {name, arguments: args} = request.params;
+        const { name, arguments: args } = request.params;
 
         // In test mode, provide deterministic responses
         if (TEST_MODE) {
