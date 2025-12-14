@@ -1,765 +1,1331 @@
 {
-  "server_name": "ableton-osc-mcp",
-  "description": "MCP server for controlling Ableton Live clip arrangement via OSC",
-  "tools": [
-    {
-      "name": "get_song_info",
-      "description": "Get current song information including tempo, time signature, and playback state",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "returns": {
-        "tempo": "number",
-        "time_signature_numerator": "number",
-        "time_signature_denominator": "number",
-        "is_playing": "boolean",
-        "current_song_time": "number",
-        "loop_start": "number",
-        "loop_end": "number"
-      }
-    },
-    {
-      "name": "set_tempo",
-      "description": "Set the song tempo in BPM",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "tempo": {
-            "type": "number",
-            "description": "Tempo in BPM (20-999)",
-            "minimum": 20,
-            "maximum": 999
-          }
-        },
-        "required": ["tempo"]
-      }
-    },
-    {
-      "name": "transport_control",
-      "description": "Control playback transport (play, stop, continue)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["play", "stop", "continue", "toggle"],
-            "description": "Transport action to perform"
-          }
-        },
-        "required": ["action"]
-      }
-    },
-    {
-      "name": "list_tracks",
-      "description": "Get list of all tracks with their properties",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "include_return_tracks": {
-            "type": "boolean",
-            "description": "Include return/send tracks",
-            "default": false
-          },
-          "include_master": {
-            "type": "boolean",
-            "description": "Include master track",
-            "default": false
-          }
-        }
-      },
-      "returns": {
-        "tracks": "array of track objects with id, name, color, mute, solo, arm states"
-      }
-    },
-    {
-      "name": "get_track_clips",
-      "description": "Get all clips in a specific track",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          }
-        },
-        "required": ["track_index"]
-      },
-      "returns": {
-        "clips": "array of clip objects with slot_index, name, length, loop settings"
-      }
-    },
-    {
-      "name": "fire_clip",
-      "description": "Trigger/fire a clip in the session view",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "description": "Zero-based clip slot index",
-            "minimum": 0
-          }
-        },
-        "required": ["track_index", "clip_index"]
-      }
-    },
-    {
-      "name": "stop_track_clips",
-      "description": "Stop all clips on a specific track",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index, or -1 for all tracks",
-            "minimum": -1
-          }
-        },
-        "required": ["track_index"]
-      }
-    },
-    {
-      "name": "create_clip",
-      "description": "Create a new MIDI or audio clip in a clip slot",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "description": "Zero-based clip slot index",
-            "minimum": 0
-          },
-          "length": {
-            "type": "number",
-            "description": "Clip length in beats",
-            "default": 4.0
-          }
-        },
-        "required": ["track_index", "clip_index"]
-      }
-    },
-    {
-      "name": "delete_clip",
-      "description": "Delete a clip from a clip slot",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "description": "Zero-based clip slot index",
-            "minimum": 0
-          }
-        },
-        "required": ["track_index", "clip_index"]
-      }
-    },
-    {
-      "name": "set_clip_name",
-      "description": "Set or rename a clip",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "description": "Zero-based clip slot index",
-            "minimum": 0
-          },
-          "name": {
-            "type": "string",
-            "description": "New clip name"
-          }
-        },
-        "required": ["track_index", "clip_index", "name"]
-      }
-    },
-    {
-      "name": "set_clip_color",
-      "description": "Set the color of a clip",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "description": "Zero-based clip slot index",
-            "minimum": 0
-          },
-          "color_index": {
-            "type": "integer",
-            "description": "Ableton color index (0-69)",
-            "minimum": 0,
-            "maximum": 69
-          }
-        },
-        "required": ["track_index", "clip_index", "color_index"]
-      }
-    },
-    {
-      "name": "duplicate_clip",
-      "description": "Duplicate a clip to another slot",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "source_track_index": {
-            "type": "integer",
-            "description": "Source track index",
-            "minimum": 0
-          },
-          "source_clip_index": {
-            "type": "integer",
-            "description": "Source clip slot index",
-            "minimum": 0
-          },
-          "dest_track_index": {
-            "type": "integer",
-            "description": "Destination track index",
-            "minimum": 0
-          },
-          "dest_clip_index": {
-            "type": "integer",
-            "description": "Destination clip slot index",
-            "minimum": 0
-          }
-        },
-        "required": ["source_track_index", "source_clip_index", "dest_track_index", "dest_clip_index"]
-      }
-    },
-    {
-      "name": "list_scenes",
-      "description": "Get list of all scenes in the project",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "returns": {
-        "scenes": "array of scene objects with index, name, color"
-      }
-    },
-    {
-      "name": "fire_scene",
-      "description": "Fire/trigger a scene to launch all clips in that row",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "scene_index": {
-            "type": "integer",
-            "description": "Zero-based scene index",
-            "minimum": 0
-          }
-        },
-        "required": ["scene_index"]
-      }
-    },
-    {
-      "name": "create_scene",
-      "description": "Create a new scene",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "index": {
-            "type": "integer",
-            "description": "Position to insert scene, -1 for end",
-            "default": -1
-          },
-          "name": {
-            "type": "string",
-            "description": "Scene name",
-            "default": ""
-          }
-        }
-      }
-    },
-    {
-      "name": "delete_scene",
-      "description": "Delete a scene",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "scene_index": {
-            "type": "integer",
-            "description": "Zero-based scene index",
-            "minimum": 0
-          }
-        },
-        "required": ["scene_index"]
-      }
-    },
-    {
-      "name": "duplicate_scene",
-      "description": "Duplicate a scene",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "scene_index": {
-            "type": "integer",
-            "description": "Scene index to duplicate",
-            "minimum": 0
-          }
-        },
-        "required": ["scene_index"]
-      }
-    },
-    {
-      "name": "set_track_property",
-      "description": "Set track properties like volume, pan, mute, solo, arm",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          },
-          "property": {
-            "type": "string",
-            "enum": ["volume", "pan", "mute", "solo", "arm", "name", "color"],
-            "description": "Property to set"
-          },
-          "value": {
-            "description": "Value to set (type depends on property)"
-          }
-        },
-        "required": ["track_index", "property", "value"]
-      }
-    },
-    {
-      "name": "set_clip_loop",
-      "description": "Configure clip looping parameters",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "loop_enabled": {
-            "type": "boolean",
-            "description": "Enable or disable looping"
-          },
-          "loop_start": {
-            "type": "number",
-            "description": "Loop start position in beats"
-          },
-          "loop_end": {
-            "type": "number",
-            "description": "Loop end position in beats"
-          }
-        },
-        "required": ["track_index", "clip_index"]
-      }
-    },
-    {
-      "name": "create_midi_note",
-      "description": "Add MIDI notes to a clip",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "pitch": {
-            "type": "integer",
-            "description": "MIDI note number (0-127)",
-            "minimum": 0,
-            "maximum": 127
-          },
-          "start_time": {
-            "type": "number",
-            "description": "Start time in beats"
-          },
-          "duration": {
-            "type": "number",
-            "description": "Note duration in beats"
-          },
-          "velocity": {
-            "type": "integer",
-            "description": "Note velocity (0-127)",
-            "minimum": 0,
-            "maximum": 127,
-            "default": 100
-          }
-        },
-        "required": ["track_index", "clip_index", "pitch", "start_time", "duration"]
-      }
-    },
-    {
-      "name": "set_global_quantization",
-      "description": "Set the global quantization for clip launching",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "quantization": {
-            "type": "string",
-            "enum": ["none", "8_bars", "4_bars", "2_bars", "1_bar", "1/2", "1/4", "1/8", "1/16"],
-            "description": "Quantization value"
-          }
-        },
-        "required": ["quantization"]
-      }
-    },
-    {
-      "name": "create_audio_track",
-      "description": "Create a new audio track",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "index": {
-            "type": "integer",
-            "description": "Position to insert track, -1 for end",
-            "default": -1
-          },
-          "name": {
-            "type": "string",
-            "description": "Track name",
-            "default": ""
-          }
-        }
-      }
-    },
-    {
-      "name": "create_midi_track",
-      "description": "Create a new MIDI track",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "index": {
-            "type": "integer",
-            "description": "Position to insert track, -1 for end",
-            "default": -1
-          },
-          "name": {
-            "type": "string",
-            "description": "Track name",
-            "default": ""
-          }
-        }
-      }
-    },
-    {
-      "name": "delete_track",
-      "description": "Delete a track",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "description": "Zero-based track index",
-            "minimum": 0
-          }
-        },
-        "required": ["track_index"]
-      }
-    },
-    {
-      "name": "get_arrangement_view",
-      "description": "Get information about the arrangement view including loop and punch settings",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "returns": {
-        "loop_enabled": "boolean",
-        "loop_start": "number",
-        "loop_length": "number",
-        "punch_in": "number",
-        "punch_out": "number"
-      }
-    },
-    {
-      "name": "set_arrangement_loop",
-      "description": "Set arrangement loop points",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "description": "Enable arrangement loop"
-          },
-          "start": {
-            "type": "number",
-            "description": "Loop start position in beats"
-          },
-          "length": {
-            "type": "number",
-            "description": "Loop length in beats"
-          }
-        },
-        "required": ["enabled"]
-      }
-    },
-    {
-      "name": "jump_to_cue_point",
-      "description": "Jump playback to a specific cue point/locator",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "cue_index": {
-            "type": "integer",
-            "description": "Cue point index",
-            "minimum": 0
-          }
-        },
-        "required": ["cue_index"]
-      }
-    },
-    {
-      "name": "get_clip_length",
-      "description": "Get the length of a clip in beats/bars",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "clip_index": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": ["track_index", "clip_index"]
-      },
-      "returns": {
-        "length_beats": "number",
-        "length_bars": "number (calculated based on time signature)"
-      }
-    },
-    {
-      "name": "move_clip",
-      "description": "Move a clip to a different clip slot (useful for rearranging phrases)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "source_track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "source_clip_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "dest_track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "dest_clip_index": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": ["source_track_index", "source_clip_index", "dest_track_index", "dest_clip_index"]
-      }
-    },
-    {
-      "name": "get_all_clips_in_scene",
-      "description": "Get all clips that would fire in a specific scene (horizontal phrase row)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "scene_index": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": ["scene_index"]
-      },
-      "returns": {
-        "clips": "array of {track_index, clip_index, name, length} for each clip in scene"
-      }
-    },
-    {
-      "name": "set_multiple_clip_lengths",
-      "description": "Set length for multiple clips at once (useful for phrase alignment)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "clips": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "track_index": {"type": "integer", "minimum": 0},
-                "clip_index": {"type": "integer", "minimum": 0},
-                "length_bars": {"type": "number"}
-              }
+    "server_name": "ableton-osc-mcp",
+    "description": "MCP server for controlling Ableton Live via OSC - Corrected to match AbletonOSC API",
+    "tools": [
+        {
+            "name": "get_song_info",
+            "description": "Get current song information including tempo, time signature, and playback state",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "type": "composite",
+                "calls": [
+                    "/live/song/get/tempo",
+                    "/live/song/get/signature_numerator",
+                    "/live/song/get/signature_denominator",
+                    "/live/song/get/is_playing",
+                    "/live/song/get/current_song_time",
+                    "/live/song/get/loop_start",
+                    "/live/song/get/loop_length"
+                ]
             }
-          }
         },
-        "required": ["clips"]
-      }
-    },
-    {
-      "name": "align_clips_to_phrase",
-      "description": "Snap all clips in a track to phrase boundaries (8, 16, 32, 64 bars)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "track_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "phrase_length": {
-            "type": "integer",
-            "enum": [4, 8, 16, 32, 64],
-            "description": "Target phrase length in bars"
-          }
-        },
-        "required": ["track_index", "phrase_length"]
-      }
-    },
-    {
-      "name": "create_phrase_structure",
-      "description": "Create a complete EDM phrase structure template (intro/buildup/drop/breakdown)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "structure_type": {
-            "type": "string",
-            "enum": ["standard_edm", "progressive_house", "dubstep", "techno", "custom"],
-            "description": "Predefined EDM structure templates"
-          },
-          "intro_bars": {
-            "type": "integer",
-            "default": 16
-          },
-          "buildup_bars": {
-            "type": "integer",
-            "default": 8
-          },
-          "drop_bars": {
-            "type": "integer",
-            "default": 32
-          },
-          "breakdown_bars": {
-            "type": "integer",
-            "default": 16
-          },
-          "outro_bars": {
-            "type": "integer",
-            "default": 16
-          }
-        },
-        "required": ["structure_type"]
-      },
-      "returns": {
-        "scenes_created": "array of scene names and bar positions"
-      }
-    },
-    {
-      "name": "batch_duplicate_clips",
-      "description": "Duplicate multiple clips at once (useful for creating variations)",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "clips": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "track_index": {"type": "integer"},
-                "clip_index": {"type": "integer"}
-              }
+        {
+            "name": "set_tempo",
+            "description": "Set the song tempo in BPM",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tempo": {
+                        "type": "number",
+                        "description": "Tempo in BPM (20-999)",
+                        "minimum": 20,
+                        "maximum": 999
+                    }
+                },
+                "required": [
+                    "tempo"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/set/tempo",
+                "params": [
+                    "tempo"
+                ]
             }
-          },
-          "destination_scene": {
-            "type": "integer",
-            "description": "Scene index where clips should be duplicated"
-          }
         },
-        "required": ["clips", "destination_scene"]
-      }
-    },
-    {
-      "name": "get_phrase_at_time",
-      "description": "Get which phrase boundary (8/16/32 bar) a time position falls on",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "time_position": {
-            "type": "number",
-            "description": "Time position in beats"
-          },
-          "phrase_length": {
-            "type": "integer",
-            "enum": [4, 8, 16, 32, 64],
-            "default": 16
-          }
+        {
+            "name": "transport_play",
+            "description": "Start playback",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/start_playing",
+                "params": []
+            }
         },
-        "required": ["time_position"]
-      },
-      "returns": {
-        "phrase_number": "integer",
-        "phrase_start_beat": "number",
-        "phrase_end_beat": "number"
-      }
-    }
-  ],
-  "configuration": {
-    "osc_host": {
-      "type": "string",
-      "description": "Ableton OSC host address",
-      "default": "127.0.0.1"
-    },
-    "osc_port": {
-      "type": "integer",
-      "description": "Ableton OSC port",
-      "default": 11000
-    },
-    "listen_port": {
-      "type": "integer",
-      "description": "Port to listen for OSC responses from Ableton",
-      "default": 11001
-    }
-  },
-  "implementation_notes": {
-    "osc_libraries": [
-      "python-osc (pyosc)",
-      "pythonosc"
-    ],
-    "prerequisites": [
-      "AbletonOSC MIDI remote script installed in Live",
-      "Live 11 or above",
-      "OSC enabled in AbletonOSC configuration"
-    ],
-    "error_handling": "All tools should handle OSC timeout errors and connection issues gracefully",
-    "state_management": "Consider caching track/clip structure to reduce OSC queries"
-  }
+        {
+            "name": "transport_stop",
+            "description": "Stop playback",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/stop_playing",
+                "params": []
+            }
+        },
+        {
+            "name": "transport_continue",
+            "description": "Continue playback from current position",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/continue_playing",
+                "params": []
+            }
+        },
+        {
+            "name": "get_num_tracks",
+            "description": "Get the number of tracks in the song",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/get/num_tracks",
+                "params": []
+            }
+        },
+        {
+            "name": "get_track_name",
+            "description": "Get the name of a specific track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "description": "Track ID (0-based index)",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/name",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_name",
+            "description": "Set the name of a track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "description": "Track ID",
+                        "minimum": 0
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "New track name"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "name"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/name",
+                "params": [
+                    "track_id",
+                    "name"
+                ]
+            }
+        },
+        {
+            "name": "get_track_volume",
+            "description": "Get track volume",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/volume",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_volume",
+            "description": "Set track volume (0.0 to 1.0)",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "volume": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "volume"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/volume",
+                "params": [
+                    "track_id",
+                    "volume"
+                ]
+            }
+        },
+        {
+            "name": "get_track_panning",
+            "description": "Get track panning",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/panning",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_panning",
+            "description": "Set track panning (-1.0 left to 1.0 right)",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "panning": {
+                        "type": "number",
+                        "minimum": -1.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "panning"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/panning",
+                "params": [
+                    "track_id",
+                    "panning"
+                ]
+            }
+        },
+        {
+            "name": "get_track_mute",
+            "description": "Get track mute state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/mute",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_mute",
+            "description": "Set track mute state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "mute": {
+                        "type": "integer",
+                        "description": "1 for muted, 0 for unmuted",
+                        "minimum": 0,
+                        "maximum": 1
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "mute"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/mute",
+                "params": [
+                    "track_id",
+                    "mute"
+                ]
+            }
+        },
+        {
+            "name": "get_track_solo",
+            "description": "Get track solo state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/solo",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_solo",
+            "description": "Set track solo state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "solo": {
+                        "type": "integer",
+                        "description": "1 for solo, 0 for not solo",
+                        "minimum": 0,
+                        "maximum": 1
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "solo"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/solo",
+                "params": [
+                    "track_id",
+                    "solo"
+                ]
+            }
+        },
+        {
+            "name": "get_track_arm",
+            "description": "Get track arm state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/arm",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_arm",
+            "description": "Set track arm state",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "arm": {
+                        "type": "integer",
+                        "description": "1 for armed, 0 for not armed",
+                        "minimum": 0,
+                        "maximum": 1
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "arm"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/arm",
+                "params": [
+                    "track_id",
+                    "arm"
+                ]
+            }
+        },
+        {
+            "name": "get_track_color",
+            "description": "Get track color",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/get/color",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_track_color",
+            "description": "Set track color",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "color": {
+                        "type": "integer",
+                        "description": "Color value"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "color"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/set/color",
+                "params": [
+                    "track_id",
+                    "color"
+                ]
+            }
+        },
+        {
+            "name": "stop_track_clips",
+            "description": "Stop all clips on a track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "description": "Track ID",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/track/stop_all_clips",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "fire_clip_slot",
+            "description": "Fire a clip slot (play/pause)",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip_slot/fire",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "create_clip",
+            "description": "Create a new clip in a clip slot",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "length": {
+                        "type": "number",
+                        "description": "Clip length in beats",
+                        "default": 4.0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "length"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip_slot/create_clip",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "length"
+                ]
+            }
+        },
+        {
+            "name": "delete_clip",
+            "description": "Delete a clip from a clip slot",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip_slot/delete_clip",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "has_clip",
+            "description": "Check if a clip slot has a clip",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip_slot/get/has_clip",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "duplicate_clip_to",
+            "description": "Duplicate a clip to another slot",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "target_track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "target_clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "target_track_id",
+                    "target_clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip_slot/duplicate_clip_to",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "target_track_id",
+                    "target_clip_id"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_name",
+            "description": "Get clip name",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/name",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "set_clip_name",
+            "description": "Set clip name",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "name"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/set/name",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "name"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_length",
+            "description": "Get clip length in beats",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/length",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_color",
+            "description": "Get clip color",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/color",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "set_clip_color",
+            "description": "Set clip color",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "color": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "color"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/set/color",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "color"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_is_playing",
+            "description": "Check if clip is playing",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/is_playing",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "fire_clip",
+            "description": "Fire/start a clip",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/fire",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "stop_clip",
+            "description": "Stop a clip",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/stop",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_loop_start",
+            "description": "Get clip loop start position",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/loop_start",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "set_clip_loop_start",
+            "description": "Set clip loop start position",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "loop_start": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "loop_start"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/set/loop_start",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "loop_start"
+                ]
+            }
+        },
+        {
+            "name": "get_clip_loop_end",
+            "description": "Get clip loop end position",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/get/loop_end",
+                "params": [
+                    "track_id",
+                    "clip_id"
+                ]
+            }
+        },
+        {
+            "name": "set_clip_loop_end",
+            "description": "Set clip loop end position",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "loop_end": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "loop_end"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/set/loop_end",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "loop_end"
+                ]
+            }
+        },
+        {
+            "name": "add_midi_notes",
+            "description": "Add MIDI notes to a clip",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "clip_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "pitch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                    },
+                    "start_time": {
+                        "type": "number",
+                        "description": "Start time in beats"
+                    },
+                    "duration": {
+                        "type": "number",
+                        "description": "Duration in beats"
+                    },
+                    "velocity": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127,
+                        "default": 100
+                    },
+                    "mute": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                },
+                "required": [
+                    "track_id",
+                    "clip_id",
+                    "pitch",
+                    "start_time",
+                    "duration",
+                    "velocity",
+                    "mute"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/clip/add/notes",
+                "params": [
+                    "track_id",
+                    "clip_id",
+                    "pitch",
+                    "start_time",
+                    "duration",
+                    "velocity",
+                    "mute"
+                ]
+            }
+        },
+        {
+            "name": "get_num_scenes",
+            "description": "Get the number of scenes",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/get/num_scenes",
+                "params": []
+            }
+        },
+        {
+            "name": "fire_scene",
+            "description": "Fire a scene",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "scene_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/scene/fire",
+                "params": [
+                    "scene_id"
+                ]
+            }
+        },
+        {
+            "name": "get_scene_name",
+            "description": "Get scene name",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "scene_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/scene/get/name",
+                "params": [
+                    "scene_id"
+                ]
+            }
+        },
+        {
+            "name": "set_scene_name",
+            "description": "Set scene name",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "scene_id",
+                    "name"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/scene/set/name",
+                "params": [
+                    "scene_id",
+                    "name"
+                ]
+            }
+        },
+        {
+            "name": "create_scene",
+            "description": "Create a new scene",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "Position to insert scene, -1 for end",
+                        "default": -1
+                    }
+                },
+                "required": [
+                    "index"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/create_scene",
+                "params": [
+                    "index"
+                ]
+            }
+        },
+        {
+            "name": "delete_scene",
+            "description": "Delete a scene",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scene_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "scene_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/delete_scene",
+                "params": [
+                    "scene_id"
+                ]
+            }
+        },
+        {
+            "name": "create_audio_track",
+            "description": "Create a new audio track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "Position to insert track, -1 for end",
+                        "default": -1
+                    }
+                },
+                "required": [
+                    "index"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/create_audio_track",
+                "params": [
+                    "index"
+                ]
+            }
+        },
+        {
+            "name": "create_midi_track",
+            "description": "Create a new MIDI track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "Position to insert track, -1 for end",
+                        "default": -1
+                    }
+                },
+                "required": [
+                    "index"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/create_midi_track",
+                "params": [
+                    "index"
+                ]
+            }
+        },
+        {
+            "name": "delete_track",
+            "description": "Delete a track",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "track_id"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/delete_track",
+                "params": [
+                    "track_id"
+                ]
+            }
+        },
+        {
+            "name": "set_clip_trigger_quantization",
+            "description": "Set global clip trigger quantization",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "quantization": {
+                        "type": "integer",
+                        "description": "Quantization level (0=none, 1=8 bars, 2=4 bars, 3=2 bars, 4=1 bar, 5=1/2, 6=1/4, 7=1/8, 8=1/16)"
+                    }
+                },
+                "required": [
+                    "quantization"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/set/clip_trigger_quantization",
+                "params": [
+                    "quantization"
+                ]
+            }
+        },
+        {
+            "name": "set_metronome",
+            "description": "Turn metronome on/off",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "integer",
+                        "description": "1 for on, 0 for off",
+                        "minimum": 0,
+                        "maximum": 1
+                    }
+                },
+                "required": [
+                    "enabled"
+                ]
+            },
+            "osc_mapping": {
+                "address": "/live/song/set/metronome",
+                "params": [
+                    "enabled"
+                ]
+            }
+        },
+        {
+            "name": "undo",
+            "description": "Undo the last operation",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/undo",
+                "params": []
+            }
+        },
+        {
+            "name": "redo",
+            "description": "Redo the last undone operation",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            "osc_mapping": {
+                "address": "/live/song/redo",
+                "params": []
+            }
+        }
+    ]
 }
