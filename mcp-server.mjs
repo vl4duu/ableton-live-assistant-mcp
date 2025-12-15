@@ -40,17 +40,58 @@ const osc = new OSC({
         open: { host: "0.0.0.0", port: OSC_RESPONSE_PORT, exclusive: false },
         send: { host: OSC_HOST, port: OSC_PORT },
     }),
-});
+})// Track OSC initialization state
+let oscReady = false;
+let oscError = null;
 
 osc.on("open", () => {
-    console.error(`OSC client ready, sending to ${OSC_HOST}:${OSC_PORT}, receiving on port ${OSC_RESPONSE_PORT}`);
+    oscReady = true;
+    console.error(`✅ OSC client ready, sending to ${OSC_HOST}:${OSC_PORT}, receiving on port ${OSC_RESPONSE_PORT}`);
 });
 
+osc.on("error", (err) => {
+    oscError = err;
+    console.error("❌ OSC Error:", err.message);
+
+    if (err.code === "EADDRINUSE") {
+        console.error(`
+⚠️  CRITICAL: Port ${OSC_RESPONSE_PORT} is already in use!
+    This usually means another MCP server instance is running.
+
+    To fix:
+    1. Find the process: lsof -i :${OSC_RESPONSE_PORT}
+    2. Kill it: kill <PID>
+    3. Or change the port: ABLETON_OSC_RESPONSE_PORT=11002
+        `);
+    }
+});
+
+// Helper to wait for OSC socket to be ready
+async function waitForOSCReady(timeoutMs = 5000) {
+    if (TEST_MODE) return true;
+
+    const startTime = Date.now();
+    while (!oscReady && !oscError) {
+        if (Date.now() - startTime > timeoutMs) {
+            throw new Error(`OSC socket failed to open within ${timeoutMs}ms`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    if (oscError) {
+        throw oscError;
+    }
+
+    return true;
+}
+
+// Initialize OSC connection (but don't block module loading)
 if (!TEST_MODE) {
     try {
         osc.open();
-    } catch (e) {
-        console.error("Warning: failed to open OSC socket:", e?.message || e);
+    } catch (err) {
+        console.error("❌ FATAL: Failed to open OSC socket:", err.message);
+        oscError = err;
     }
 }
 
@@ -420,11 +461,34 @@ const OSC_MAPPINGS = {
 // Utility functions
 function fireAndForget(address, ...args) {
     if (TEST_MODE) return;
+
+    // Safety check: verify OSC is ready
+    if (!oscReady) {
+        console.error(`⚠️  Warning: Attempting to send ${address} but OSC not ready`);
+    }
+
     osc.send(new OSC.Message(address, ...args));
 }
 
 function sendAndWait(address, ...args) {
     return new Promise((resolve, reject) => {
+        // Check if OSC is ready before attempting communication
+        if (!TEST_MODE && !oscReady) {
+            reject(new Error(
+                `Cannot send OSC message: OSC connection not ready. ` +
+                `This should not happen - the server should wait for OSC during startup.`
+            ));
+            return;
+        }
+
+        if (!TEST_MODE && oscError) {
+            reject(new Error(
+                `Cannot send OSC message: OSC connection failed during initialization. ` +
+                `Error: ${oscError.message}`
+            ));
+            return;
+        }
+
         let subscriptionId;
 
         const onTimeout = () => {
@@ -433,9 +497,14 @@ function sendAndWait(address, ...args) {
             }
             reject(
                 new Error(
-                    `Timeout waiting for Ableton response on ${address}. ` +
-                    `Check that Ableton Live is running with AbletonOSC enabled on port ${OSC_PORT}. ` +
-                    `(host=${OSC_HOST}, port=${OSC_PORT})`
+                    `Timeout waiting for Ableton response on ${address} after ${TIMEOUT_MS}ms.\n\n` +
+                    `Troubleshooting:\n` +
+                    `  1. Is Ableton Live running?\n` +
+                    `  2. Is AbletonOSC plugin enabled? (Preferences > Link / Tempo / MIDI)\n` +
+                    `  3. Is AbletonOSC listening on port ${OSC_PORT}?\n` +
+                    `  4. Is port ${OSC_RESPONSE_PORT} accessible for responses?\n` +
+                    `  5. Check AbletonOSC logs for errors\n\n` +
+                    `Config: host=${OSC_HOST}, send_port=${OSC_PORT}, receive_port=${OSC_RESPONSE_PORT}`
                 )
             );
         };
@@ -575,15 +644,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 
+// Graceful shutdown handler
+function setupShutdownHandlers() {
+    const cleanup = () => {
+        console.error("\nShutting down MCP server...");
+        try {
+            if (osc && oscReady) {
+                osc.close();
+            }
+        } catch (err) {
+            // Ignore cleanup errors
+        }
+        process.exit(0);
+    };
+
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+}
+
 // Start server
 async function main() {
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("Ableton Live MCP server running on stdio");
-    console.error(`Loaded ${toolsConfig.tools?.length || 0} tools from ${TOOL_SPEC_PATH}`);
+    try {
+        // CRITICAL: Wait for OSC socket to be ready before accepting requests
+        console.error("Waiting for OSC connection to initialize...");
+        await waitForOSCReady(10000); // 10 second timeout
+        console.error("OSC connection established");
+
+        // Setup cleanup handlers
+        setupShutdownHandlers();
+
+        // Now start the MCP server
+        const transport = new StdioServerTransport();
+        await server.connect(transport);
+        console.error("✅ Ableton Live MCP server running on stdio");
+        console.error(`   Loaded ${toolsConfig.tools?.length || 0} tools from ${TOOL_SPEC_PATH}`);
+    } catch (error) {
+        console.error("❌ FATAL: Server initialization failed:", error.message);
+
+        if (error.code === "EADDRINUSE") {
+            console.error("\nAnother instance may be running. Check with: lsof -i :${OSC_RESPONSE_PORT}");
+        } else if (error.message.includes("OSC socket")) {
+            console.error("\nMake sure:");
+            console.error("  1. Port ${OSC_RESPONSE_PORT} is available");
+            console.error("  2. No firewall is blocking UDP traffic");
+            console.error("  3. Ableton Live is running with AbletonOSC plugin enabled");
+        }
+
+        process.exit(1);
+    }
 }
 
 main().catch((error) => {
-    console.error("Fatal error:", error);
+    console.error("❌ Fatal error:", error);
     process.exit(1);
 });

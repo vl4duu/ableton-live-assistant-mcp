@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(node tests/test-osc-bidirectional.mjs:*)",
+      "Bash(node tests/test-mcp-get-track.mjs:*)",
+      "Bash(lsof:*)",
+      "Bash(ps:*)",
+      "Bash(kill:*)",
+      "Bash(timeout 8 node:*)",
+      "Bash(node /Users/vl4duu/ableton-live-assistant/get-all-tracks.mjs:*)"
+    ]
+  }
+}
